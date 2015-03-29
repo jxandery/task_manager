@@ -1,4 +1,5 @@
 require 'yaml/store'
+require_relative 'task'
 
 class TaskManager
   def self.database
