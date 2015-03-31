@@ -1,0 +1,297 @@
+===== Task Manager =====
+
+What each thing is doing:
+-------------------------
+
+Getting Configured
+------------------
+
+  Gemfile:
+    - Shotgun: allows changes to code base without having to restart the sever each time
+
+  config.ru:
+    - require 'bundler'     # first two lines of this file allow all of your gems to be required.
+      Bundler.require
+
+Project Folder Structure
+------------------------
+  - app folder: for all of our implementation code and will contain:
+
+      app/controllers
+      app/models
+      app/views
+
+      - Although we could put all  of our code inside of the same folder (or even most of it in the same file, we're going to use this structure to mimic the MVC set up that Rails will give us.
+
+  - db folder: will hold our fake databases
+
+Getting the App Running
+----------------------
+  - Remember when we wrote run TaskManagerApp in our config.ru file? Well, the class (TaskManagerApp) we just defined is what that line in our config.rf refers to
+  - Line 2 sets the root of our project. Here, we're taking the current file (app/controllers/task_manager_app) and going one folder up the chain. This should take us to our app folder. The reason we're doing this is because Sinatra will look
+    relative to our app for views and stylesheets. We don't want to put these things in our controllers folder so we're specifying that our root is just app.
+  - Next, we tell our app that when a get request is sent to the'/; path, it should send back 'hello, world!' as the response.
+
+Using Views
+-----------
+  - Let's change our controller to render an ERB view instead of 'hello, world!'.
+
+    get '/' do
+      erb :dashboard
+    end
+
+  - This piece of code will look for an .erb file called 'dashboard' in the views folder at the root of the app. Since we've already set the root of the app and created a views folder there, we're ready to make a dashboard file.
+  - app/views/dashboard/erb:
+
+
+      <h1>Welcome to the Task Manager</h1>           # We have an h1 tag for our welcome message
+
+      <ul>                                           # then an unordered list (ul) with two list items (li) inside
+        <li><a href="/tasks">Tasks Index</a></li>    # inside of each li tag, we have an a tag. The href tag is the path were the link will go. In the first tag the path will be http://localhost:9393/tasks.
+        <li><a href="/tasks/new">New Task</a></li>   # the second path will be http://localhost:9393/tasks/new
+      </ul>
+
+Adding a Task Index Route
+-------------------------
+  - In a Sinatra app, we can add routes by combining an HTTP verb (get, post, put, delete, etc) with a URL pattern
+  - Our controller currently has one route:
+
+    get '/' do
+      erb :dashboard
+    end
+
+  - Let's add a route for the first link we want -- our Task Index. In app/controllers/task_manager_app.rb
+
+    Class TaskManagerApp < Sinatra::Base
+      set :root, File.join(File.dirname(__FILE__), '..')
+
+      get '/' do
+        erb :dashboard
+      end
+
+      get '/tasks' do                          # what are we doing here?
+        @tasks = ["task1", "task2", "task3"]   # Well, we create an instance variable @tasks and assign an array of three strings to it.
+        erb :index                             # then we render the index.erb file. Our instance variable will be available to use in the view.
+      end
+    end
+
+ -  inside of the view, we will iterate through the array @tasks and display each string
+
+    <h1>All Tasks</h1>
+
+    <% @tasks.each do |task| %>
+      <h3><%= task %></h3>
+    <% end %>
+
+Adding a New Task Route
+-----------------------
+  - We need a route that will bring a user to a form where they can eneter a new task. This is the second link we had in our dashboard.
+    In our controller:
+
+    class TaskManagerApp < Sinatra::Base
+      set :root, File.join(File.dirname(__FILE__), '..')
+
+      get('/') do
+        erb(:dashboard)
+      end
+
+      get '/tasks' do
+        @tasks = ["task1", "task2", "task3"]
+        erb :index
+      end
+
+      get '/tasks/new' do
+        erb :new
+      end
+    end
+
+  - app views/new.erb
+
+      <form action="/tasks" method="post">                     # here we have a form with an action (url path) of /tasks and a method of post. This combination of path and verb will be important when we create the route in the controller.
+        <p>Enter a new task:</p>
+        <input type='text' name='task[title]'/><br/>           # we then have a text imput field for the title,
+        <textarea name='task[desctiption]'></textarea><br/>    # a text area for the description,
+        <input type='submit'/>                                 # and a submit button
+      </form>
+
+## not sure i can articulate what the code is doing above or why it creates a hash, as seen below (15 lines)
+
+  - we're going to add the below to setup a route in our controller to handle use of the submit button -- aka the method combination from the form submission
+
+    post '/tasks' do
+      "<p>Params: #{params}</p> <p>Task params: #{params[:task]}</p>"
+    end
+
+  - why post instead of get? First, we specified a method of post in our form. Although we could make it work using get, HTTP convention specifies that a get request should request data from a specified resource while
+    a post should submit data to be processed. In our case, we are submitting from data that needs to be processed, so we're using post.
+  - Go back to http://localhost:9393/new . Fill in a fake title and a fake desctiption. Click submit. On the page you should see something like:
+
+    Params: {"task"=>{"title"=>"purchase a reversible tap", "description"=>"need to get my panel connections going"}}
+
+    Task params: {"title"=>"purchase a reversible tap", "description"=>"need to get my panel connections going"}
+
+  - Notice that params is just a hash. The key is "task" and the value is another hash containging the title and desription. This structure was created because of the way we named the input fields in our form.
+  - When we access params[:task], we get back just the part we want; the title and description. This is what we'll use ot build a task.
+
+Saving Tasks
+------------
+  - We are going to delegate the creation of a task to a TaskManager class. You can think of this as whose job is to manage all of our tasks.
+    Insinde our controllers/task_manager_app.rb
+
+    post 'tasks' do
+      TaskManager.create(params[:task])
+      redirect '/tasks'
+    end
+
+  - Once the task is created, we'll redirect to '/tasks' (our index) so that the user can see the task
+# get clear on what files the user can see and which they can't see and why
+
+  - We are going to delegate the creation of a task to a TaskManager Class. This class will manage all of our tasks
+
+    app/models/task_manager.rb
+
+    require 'yaml/store'
+
+    class TaskManager
+      def  self.database
+        @database ||= YAML::Store.new("db/task_manager")
+      end
+
+      def self.create(task)
+        database.transaction do
+          database['total'] ||= 0
+          database['total'] += 1
+          database['tasks'] << { "id" => database['total'], "title" => task[:title], "description" => task[:description] }
+        end
+      end
+    end
+
+# what is this transaction method that is being called on database? google didn't turn up anything useful
+# under the task_manager the description is not showing up, the code looks identical. can't identify the problem.
+  - Entering a few more tasks using the web interface and you can see that the file changes. Each new tasks will be added under tasks
+
+Displaying Reak Tasks on the Index Page
+---------------------------------------
+  - So that's pretty cool that they get added under tasks heading in task_manager class but what about displaying these on the index page? Right now
+    they're hard coded as an array of fake tasks in our controller. See below
+
+    get '/tasks' do
+      @tasks = ["task1", "task2", ""task3]
+      erb :index
+    end
+
+  - To pull these tasks using our TaskManager class, change the set of instructions to:
+
+    get '/tasks' do
+      @tasks = TaskManager.all     # this will return an array of Task objects
+      erb :index
+    end
+
+  - The all methods don't yet exist in the TaskManager class, so we'll have to create those. Use the code below
+
+    def self.raw_tasks
+      database.transaction do
+        database['tasks'] || []
+      end
+    end
+
+    def self.all
+      raw_rasks.map { |data| Task.new(data) }
+    end
+
+  - We added two new methods, self.raw_tasks and self.all.
+  - self.raw_tasks will go into your YAML file and retrieve everything under database['tasks']
+      - The out put looks like: [{"id"=>1, "title"=>"Make cookies", "description"=>"They are delicions."}, {"id"=>2, "title"=>"Write code.", "description"=>"Always write code."}]
+      - it's an array of hashes, one hash for each task in our YAML file. This is ok, but what we really want is for these hashes to be actual Task objects.
+  - This is where the self.all method comes in. We will map over the raw_tasks and pass that data hash into Task.new
+
+    app/models/task.rb
+
+    class Task
+      attr_reader :title, :description, :id
+
+      def initialize(data)
+        @id          = data["id"]
+        @title       = data["title"]
+        @description = data["description"]
+      end
+    end
+
+  - Here we are defining the class Task. Upon initialization it will accept a data hast hnd access each piece of data via the keys
+  - Now, when we call TaskManager.all we will get back an array of Task objects.
+
+Updating the Index View
+-----------------------
+  - We need to change our index.erb file so that we display each task's id and title. Let's make it so that the title is a link to a page where you will see that individual task and its description
+
+    <h1>All Tasks</h1>
+
+    <% @tasks.each do |task| %>
+      <h3><%= task.id %>: <a href="/tasks/<%= task.id %>"><%= task.title %></a></h3>
+    <% end %>
+
+  - You should see your tasks each with an id and a title. The title should be clickable even though you'll get an "ditty" error.
+
+Showing Individual Tasks
+------------------------
+  - Notice that the URL when you clicked on a link was something like http://localhost:9393/tasks/1 . We want that last number, the task id number, to be flexible.
+  - If we go to http://localhost:9393/tasks/1 we should see task 1 displayed. If we go to http://localhost:9393/tasks/2 we should see task 2
+  - Let's set up another route in our controller to handle this behavior
+
+    require 'models/task_manager'
+
+    class TaskManagerApp < Sinatra::Base
+      set :root, File.join(File.dirname(__FILE__), '..')
+
+      get '/' do
+        erb :dashboard
+      end
+
+      get '/tasks' do
+        @tasks = TaskManager.all
+        erb :index
+      end
+
+      get '/tasks/new' do
+        erb :new
+      end
+
+      post '/tasks' do
+        TaskManager.create(params[:task])
+        redirect '/tasks'
+      end
+
+      get '/tasks/:id' do |id|              # the /:id will take whatever at that point in the URL and allow us to acces it as a local variable id.
+        @task = TaskManager.find(d.to_i)    # next we create an instance variable @task which will hold the return value of TaskManager.find(id.to_i). We don't ahve this method yet. Also, id comes in as a string, hence the .to_i
+        erb :show
+      end
+    end
+
+  - before we build our find method, let's create the view:
+  - app/views/show.erb
+
+    <a href="/tasks">Task Index</a>
+    <h1><%= @task.title %></h1>
+    <p><%= @task.description %></p>
+
+  - the HTML and ERB that is displayed shows one specific task along with a link back to the task index
+
+Building the .find Method
+-------------------------
+  - add the two methods below to allow us to find a task
+
+    app/models/task_manager.rb (excerpted)
+
+     def self.raw_task(id)
+       raw_tasks.find { |task| task["id"] == id }
+     end
+
+     def self.find(id)
+       Tasknew(raw_task(id))
+     end
+
+  - in the self.raw_task(id) method, we're taking the raw_tasks and finding the one where the task["id"] is the same as the id that is passed in
+    That will return a hash of the task data.
+  - in the self.find(id) method, we'll create a Task object from that hash of task data
+  - Refresh http://lcoalhost:9393/tasks/1, you should see the task title and description displayed. You should also be able to click back to the task index
+
